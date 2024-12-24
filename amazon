@@ -1,0 +1,111 @@
+import time
+import json
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+
+
+AMAZON_EMAIL = 'mail@example.com'  # Replace with your Amazon email
+AMAZON_PASSWORD = 'pass@'        # Replace with your Amazon password
+CATEGORIES = [
+    "kitchen", "shoes", "computers", "electronics", "books",
+    "clothing", "toys", "home_improvement", "grocery", "health"
+]
+OUTPUT_FILE = "amazon_best_sellers.json"
+
+
+chromedriver_path = r"C:\Users\ponshivavel\instership\New folder\chomedriver.exe "  # Update with your path to chromedriver
+
+options = Options()
+options.add_argument("--start-maximized")
+driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
+
+def login_to_amazon():
+    try:
+        driver.get("https://www.amazon.in/ap/signin")
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "ap_email")))
+
+        email_input = driver.find_element(By.ID, "ap_email")
+        email_input.send_keys(AMAZON_EMAIL)
+        email_input.send_keys(Keys.RETURN)
+
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "ap_password")))
+        password_input = driver.find_element(By.ID, "ap_password")
+        password_input.send_keys(AMAZON_PASSWORD)
+        password_input.send_keys(Keys.RETURN)
+
+        time.sleep(5)  # Allow time for login to complete
+    except Exception as e:
+        print(f"Error during login: {e}")
+        driver.quit()
+        exit()
+
+def scrape_category(category):
+    products = []
+    url = f"https://www.amazon.in/gp/bestsellers/{category}/ref=zg_bs_nav_{category}_0"
+    driver.get(url)
+
+    try:
+        for _ in range(3):  # Adjust range to scrape more pages (Each loop scrolls and collects products)
+            WebDriverWait(driver, 10).until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".zg-item-immersion")))
+            product_elements = driver.find_elements(By.CSS_SELECTOR, ".zg-item-immersion")
+
+            for product in product_elements:
+                try:
+                    name = product.find_element(By.CSS_SELECTOR, "div.p13n-sc-truncate").text
+                    price = product.find_element(By.CSS_SELECTOR, ".p13n-sc-price").text
+                    discount = product.find_element(By.CSS_SELECTOR, ".a-size-small.a-color-price").text
+                    rating = product.find_element(By.CSS_SELECTOR, "span.a-icon-alt").text
+                    sold_by = "Amazon"  # Assumption if no seller details are present
+                    ship_from = "Amazon"  # Assumption if no shipping details are present
+                    images = [img.get_attribute("src") for img in product.find_elements(By.CSS_SELECTOR, "img")]
+
+                    if "%" in discount:
+                        discount_value = int(discount.replace("%", "").strip())
+                        if discount_value > 50:
+                            products.append({
+                                "Product Name": name,
+                                "Product Price": price,
+                                "Sale Discount": discount,
+                                "Best Seller Rating": rating,
+                                "Ship From": ship_from,
+                                "Sold By": sold_by,
+                                "Category Name": category,
+                                "All Available Images": images
+                            })
+                except NoSuchElementException:
+                    continue
+
+           
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2)
+
+    except TimeoutException as e:
+        print(f"Timeout while scraping category {category}: {e}")
+
+    return products
+
+def save_data_to_file(data):
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=4)
+
+def main():
+    login_to_amazon()
+    all_products = []
+
+    for category in CATEGORIES:
+        print(f"Scraping category: {category}")
+        products = scrape_category(category)
+        all_products.extend(products)
+
+    save_data_to_file(all_products)
+    print(f"Data saved to {OUTPUT_FILE}")
+    driver.quit()
+
+if __name__ == "__main__":
+    main()
